@@ -106,7 +106,7 @@ median_weight <- median(COMMISSIONS_dist[,2])
 # multiply 'b' in the confusion matrix with the mean weight
 ###############################################################
 CM_2 <- CM_1
-(CM_2[2,1] <- round(CM_2[2,1] * median_weight))
+(CM_2[1,2] <- round(CM_2[1,2] * median_weight))
 CM_2
 
 ###############################################################
