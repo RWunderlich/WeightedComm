@@ -95,7 +95,10 @@ source("../Code/R.Code/sedi.R")
 # extract scaled weight for all commissions and compute mean
 ###############################################################
 COMMISSIONS_pred <- extract(x = my_result, y = XY_unique)
+COMM_index <- which(x = COMMISSIONS_pred < as.vector(unlist(maxSSS)))
+COMMISSIONS_pred <- COMMISSIONS_pred[COMM_index]
 COMMISSIONS_dist <- extract(x = distRaster, y = XY_unique, cellnumbers = T)
+COMMISSIONS_dist <- COMMISSIONS_dist[COMM_index, ]
 
 median_weight <- median(COMMISSIONS_dist[,2])
 
