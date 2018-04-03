@@ -21,6 +21,7 @@ epsg6933 <- CRS("+proj=cea +lon_0=0 +lat_ts=30 +x_0=0 +y_0=0 +ellps=WGS84 +towgs
 # read a single raster and determine cell indices of NA
 ###############################################################
 my_result <- raster(x = "../Roadkill/Predictions/Mean_prediction_Trimeresurus_stej.tif")
+spplot(my_result)
 NA_cells <- Which(x = is.na(my_result) == T, cells = T)
 
 ###############################################################
@@ -46,7 +47,7 @@ XY_unique <- matrix(cbind(occurrences_Tri_ste_unique$x..EPSG_69, occurrences_Tri
 
 median_radius <- round(median(x = occurrences_Tri_ste$radius))
 ###############################################################
-# calculate distance raster, reuse XY to fasten computation
+# calculate distance raster, reuse XY to fasten computation by 1microsecond
 ###############################################################
 distRaster <- distanceFromPoints(object = my_result, xy = XY_all)
 spplot(distRaster)
@@ -88,8 +89,8 @@ source("../Code/R.Code/sedi.R")
 ###############################################################
 # evaluate #1 (TSS, SEDI)
 ###############################################################
-(TSS_1 <- TSS(a = CM_1[1,1], b = CM_1[1,2], c = CM_1[2,1], d = CM_1[2,2]))
-(SEDI_1 <- sedi(a = CM_1[1,1], b = CM_1[1,2], c = CM_1[2,1], d = CM_1[2,2]))
+(TSS_1 <- TSS(a = CM_1[2,2], b = CM_1[2,1], c = CM_1[1,2], d = CM_1[1,1]))
+(SEDI_1 <- sedi(a = CM_1[2,2], b = CM_1[2,1], c = CM_1[1,2], d = CM_1[1,1])[[2]])
 
 ###############################################################
 # extract scaled weight for all commissions and compute mean
@@ -106,14 +107,14 @@ median_weight <- median(COMMISSIONS_dist[,2])
 # multiply 'b' in the confusion matrix with the mean weight
 ###############################################################
 CM_2 <- CM_1
-(CM_2[1,2] <- round(CM_2[1,2] * median_weight))
+(CM_2[2,1] <- round(CM_2[2,1] * median_weight))
 CM_2
 
 ###############################################################
 # evaluate #2 (TSS, SEDI)
 ###############################################################
-(TSS_2 <- TSS(a = CM_2[1,1], b = CM_2[1,2], c = CM_2[2,1], d = CM_2[2,2]))
-(SEDI_2 <- sedi(a = CM_2[1,1], b = CM_2[1,2], c = CM_2[2,1], d = CM_2[2,2]))
+(TSS_2 <- TSS(a = CM_2[2,2], b = CM_2[2,1], c = CM_2[1,2], d = CM_2[1,1]))
+(SEDI_2 <- sedi(a = CM_2[2,2], b = CM_2[2,1], c = CM_2[1,2], d = CM_2[1,1])[[2]])
 
 ###############################################################
 # COMPARE!!
