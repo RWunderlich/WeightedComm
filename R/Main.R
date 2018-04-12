@@ -113,7 +113,7 @@ weightRaster_O <- focal(x = my_result, w = foc_weights, fun = my_foc_fun)
 weightRaster_O <- mask(x = weightRaster_O, mask = my_result)
 weightRaster_O <- weightRaster_O - minValue(weightRaster_O)
 weightRaster_O <- weightRaster_O * 1/maxValue(weightRaster_O) # scaling to 0..1
-weightRaster_O <- weightRaster_O * 1/Prev #
+weightRaster_O <- weightRaster_O * 1/Prev # taking into account prevalence: if very low omissions are more serious
 
 spplot(distRaster)
 spplot(weightRaster_C)
