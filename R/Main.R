@@ -27,7 +27,7 @@ NA_cells <- Which(x = is.na(my_result) == T, cells = T)
 ###############################################################
 # read occurrences, we need x, y, radius, the latter being the
 # larger of home range radius and positional uncertainty
-# compute median radius
+# compute mean radius
 # cell indices of presences 
 ###############################################################
 occurrences <- read.csv(file = "../Roadkill/Occurrences/RoadKill_EPSG_6933_NoNAs.csv", header = T, sep = ",", quote = "\"", dec = ".")
@@ -45,46 +45,29 @@ Cell_numbers_unique <- Cell_numbers_all[-duplicates]
 occurrences_Tri_ste_unique <- occurrences_Tri_ste[is.element(occurrences_Tri_ste$cell, Cell_numbers_duplicated) == F, ]
 XY_unique <- matrix(cbind(occurrences_Tri_ste_unique$x..EPSG_69, occurrences_Tri_ste_unique$y..EPSG_69), ncol = 2)
 
-median_radius <- round(median(x = occurrences_Tri_ste$radius))
-###############################################################
-# calculate distance raster, reuse XY to fasten computation by 1microsecond
-###############################################################
-distRaster <- distanceFromPoints(object = my_result, xy = XY_all)
-spplot(distRaster)
+mean_radius <- round(mean(x = occurrences_Tri_ste$radius))
 
-###############################################################
-# mask distRaster with prediction and divide by median_radius
-# plot for visual control
-###############################################################
-distRaster <- mask(x = distRaster, mask = my_result)
-distRaster <- distRaster / median_radius
-spplot(distRaster)
 
-###############################################################
-# scale result to 0.x .. y, with x * y = 1 to maintain symmetry
-# around 1
-# suggest a default of 0.2 and 5 or 0.1 and 10
-# plot for visual control
-###############################################################
-distRaster[distRaster <= 1] <-  0 # We don't care AT ALL if we 'wrongly' predict into an actual home range or within the range of uncertainty
-distRaster[(distRaster > 1) * (distRaster <= 2)] <- 2/3 # We care a bit if we are a bit off
-distRaster[(distRaster > 2) * (distRaster <= 3)] <- 1 # We care a bit more if we are a bit more off
-distRaster[distRaster > 3] <- 4/3 # We do care yet more if were are even more off
-spplot(distRaster)
 
 ###############################################################
 # calculate maxSSS and confusion matrix and AUC and load sedi.R
 ###############################################################
 NA_Pres_cells <- unique(c(NA_cells, Cell_numbers_unique))
 AvailableForBG_cells <- setdiff(1:ncell(my_result), NA_Pres_cells)
+set.seed(2607)
+BG <- sample(x = AvailableForBG_cells, size = 5000)
 
-obs <- c(rep(1, NROW(x = occurrences_Tri_ste_unique)), rep(0, 5000))
-pred <- c(extract(x = my_result, y = XY_unique),
-          extract(x = my_result, y = sample(x = AvailableForBG_cells, size = 5000)))
-(maxSSS <- optim.thresh(obs = obs, pred = pred)[5][1])
+obs <- c(rep(1, length(x = Cell_numbers_unique)), rep(0, length(BG)))
+pred <- c(extract(x = my_result, y = Cell_numbers_unique),
+          extract(x = my_result, y = BG))
+(maxSSS <- optim.thresh(obs = obs, pred = pred)[5][[1]])
 (CM_1 <- confusion.matrix(obs = obs, pred = pred, threshold = as.vector(unlist(maxSSS))))
-(AUC <- auc(obs = obs, pred = pred))
 source("../Code/R.Code/sedi.R")
+
+###############################################################
+# evaluate AUC
+###############################################################
+(AUCscore <- SDMTools::auc(obs = obs, pred = pred))
 
 ###############################################################
 # evaluate #1 (TSS, SEDI)
@@ -93,21 +76,72 @@ source("../Code/R.Code/sedi.R")
 (SEDI_1 <- sedi(a = CM_1[2,2], b = CM_1[2,1], c = CM_1[1,2], d = CM_1[1,1])[[2]])
 
 ###############################################################
-# extract scaled weight for all commissions and compute mean
+# calculate distance raster
 ###############################################################
-COMMISSIONS_pred <- extract(x = my_result, y = XY_unique)
-COMM_index <- which(x = COMMISSIONS_pred < as.vector(unlist(maxSSS)))
-COMMISSIONS_pred <- COMMISSIONS_pred[COMM_index]
-COMMISSIONS_dist <- extract(x = distRaster, y = XY_unique, cellnumbers = T)
-COMMISSIONS_dist <- COMMISSIONS_dist[COMM_index, ]
+distRaster <- distanceFromPoints(object = my_result, xy = XY_all) # cell number duplicates are not relevant in this context
+spplot(distRaster)
 
-median_weight <- median(COMMISSIONS_dist[,2])
+###############################################################
+# mask distRaster with prediction and divide by mean_diameter
+# plot for visual control
+###############################################################
+distRaster <- mask(x = distRaster, mask = my_result)
+distRaster <- distRaster / (mean_radius * 2)
+spplot(distRaster)
+
+###############################################################
+# closely following Fielding & Bell 1997
+# but we also consider omission weights based on neighboorhood predictions,
+# if we miss entirely, i.e. dont say yes anywhere in the neighborhood, it is VERY bad
+###############################################################
+
+Prev <- length(Which(x = my_result > maxSSS[[1]], cells = T)) / length(my_result[is.na(my_result) == F])
+
+distRaster[distRaster < 1] <-  1
+spplot(distRaster)
+weightRaster_C <- (1 - (1/distRaster))
+
+foc_weights <- matrix(data = 1, nrow = 3, ncol = 3)
+my_foc_fun <- function(x, y = maxSSS[[1]], na.rm = T) {
+  CELLS_nh <- length(which(x >= 0))
+  CELLS_p <- length(which(x > y)) # no need to differentiaate between TRUE FALSE here
+  RES <- (CELLS_nh + 1) / (CELLS_p + 1)
+  return(RES)
+}
+
+weightRaster_O <- focal(x = my_result, w = foc_weights, fun = my_foc_fun)
+weightRaster_O <- mask(x = weightRaster_O, mask = my_result)
+weightRaster_O <- weightRaster_O - minValue(weightRaster_O)
+weightRaster_O <- weightRaster_O * 1/maxValue(weightRaster_O) # scaling to 0..1
+weightRaster_O <- weightRaster_O * 1/Prev #
+
+spplot(distRaster)
+spplot(weightRaster_C)
+spplot(weightRaster_O)
+
+
+###############################################################
+# extract scaled weight for all commissions/omissions and compute mean
+###############################################################
+COMMISSIONS_pred <- extract(x = my_result, y = xyFromCell(object = my_result, cell = BG), cellnumbers = T)
+COMMISSIONS_cells <- COMMISSIONS_pred[COMMISSIONS_pred[,2] > maxSSS, 1]
+
+COMMISSIONS_weight <- extract(x = weightRaster_C, y = COMMISSIONS_cells)
+(mean_weight_C <- mean(COMMISSIONS_weight))
+
+OMISSIONS_pred <- extract(x = my_result, y = xyFromCell(object = my_result, cell = Cell_numbers_unique), cellnumbers = T)
+OMISSIONS_cells <- OMISSIONS_pred[OMISSIONS_pred[,2] < maxSSS, 1]
+
+OMISSIONS_weight <- extract(x = weightRaster_O, y = OMISSIONS_cells)
+(mean_weight_O <- mean(OMISSIONS_weight))
+
+## ONLY CONSIDER COMMISSION WEIGHTS:
 
 ###############################################################
 # multiply 'b' in the confusion matrix with the mean weight
 ###############################################################
 CM_2 <- CM_1
-(CM_2[2,1] <- round(CM_2[2,1] * median_weight))
+(CM_2[2,1] <- round(CM_2[2,1] * mean_weight_C))
 CM_2
 
 ###############################################################
@@ -116,6 +150,33 @@ CM_2
 (TSS_2 <- TSS(a = CM_2[2,2], b = CM_2[2,1], c = CM_2[1,2], d = CM_2[1,1]))
 (SEDI_2 <- sedi(a = CM_2[2,2], b = CM_2[2,1], c = CM_2[1,2], d = CM_2[1,1])[[2]])
 
+## ONLY CONSIDER OMISSION WEIGHTS:
+
 ###############################################################
-# COMPARE!!
+# multiply 'c' in the confusion matrix with the mean weight
 ###############################################################
+CM_3 <- CM_1
+(CM_3[1,2] <- round(CM_3[1,2] * mean_weight_O))
+CM_3
+
+###############################################################
+# evaluate #3 (TSS, SEDI)
+###############################################################
+(TSS_3 <- TSS(a = CM_3[2,2], b = CM_3[2,1], c = CM_3[1,2], d = CM_3[1,1]))
+(SEDI_3 <- sedi(a = CM_3[2,2], b = CM_3[2,1], c = CM_3[1,2], d = CM_3[1,1])[[2]])
+
+## CONSIDER BOTH ERROR TYPE WEIGHTS
+
+###############################################################
+# multiply 'b' and 'c' in the confusion matrix with the mean weights
+###############################################################
+CM_4 <- CM_1
+(CM_4[2,1] <- round(CM_4[2,1] * mean_weight_C))
+(CM_4[1,2] <- round(CM_4[1,2] * mean_weight_O))
+CM_4
+
+###############################################################
+# evaluate #4 (TSS, SEDI)
+###############################################################
+(TSS_4 <- TSS(a = CM_4[2,2], b = CM_4[2,1], c = CM_4[1,2], d = CM_4[1,1]))
+(SEDI_4 <- sedi(a = CM_4[2,2], b = CM_4[2,1], c = CM_4[1,2], d = CM_4[1,1])[[2]])
